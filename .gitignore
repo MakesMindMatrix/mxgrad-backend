@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Env and secrets (never commit)
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Optional uploads / temp (if you add later); keep folder via .gitkeep
+uploads/*
+!uploads/.gitkeep
+tmp/
+temp/
