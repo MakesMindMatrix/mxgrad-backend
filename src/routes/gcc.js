@@ -273,7 +273,7 @@ router.get('/requirements/:id', async (req, res) => {
   }
 });
 
-// Update requirement
+// Update requirement (when SENT_BACK, resubmitting sets approval_status back to PENDING_APPROVAL)
 router.put('/requirements/:id', async (req, res) => {
   try {
     const {
@@ -290,7 +290,12 @@ router.put('/requirements/:id', async (req, res) => {
       skills,
       industry_type,
       nda_required,
+      resubmit,
     } = req.body;
+
+    const existing = await query('SELECT id, approval_status FROM requirements WHERE id = $1 AND gcc_user_id = $2', [req.params.id, req.user.id]);
+    if (existing.rows.length === 0) return res.status(404).json({ message: 'Requirement not found' });
+    const isResubmit = resubmit === true && existing.rows[0].approval_status === 'SENT_BACK';
 
     const r = await query(
       `UPDATE requirements SET
@@ -307,8 +312,11 @@ router.put('/requirements/:id', async (req, res) => {
         skills = COALESCE($12, skills),
         industry_type = COALESCE($13, industry_type),
         nda_required = COALESCE($14, nda_required),
+        approval_status = CASE WHEN $15::boolean THEN 'PENDING_APPROVAL' ELSE approval_status END,
+        admin_remarks = CASE WHEN $15::boolean THEN NULL ELSE admin_remarks END,
+        admin_remarks_at = CASE WHEN $15::boolean THEN NULL ELSE admin_remarks_at END,
         updated_at = NOW()
-       WHERE id = $1 AND gcc_user_id = $15
+       WHERE id = $1 AND gcc_user_id = $16
        RETURNING *`,
       [
         req.params.id,
@@ -325,6 +333,7 @@ router.put('/requirements/:id', async (req, res) => {
         skills,
         industry_type,
         nda_required,
+        isResubmit,
         req.user.id,
       ]
     );

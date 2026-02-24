@@ -1,8 +1,29 @@
 import { Router } from 'express';
+import path from 'path';
+import crypto from 'crypto';
+import multer from 'multer';
 import { authMiddleware, requireAuth, requireApproved, requireRole } from '../middleware/auth.js';
 import { query } from '../db/pool.js';
 
 const router = Router();
+
+const proposalsDir = path.join(process.cwd(), 'uploads', 'proposals');
+const proposalUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, proposalsDir),
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname) || '';
+      const safe = (file.originalname || 'document').replace(/[^a-zA-Z0-9.-]/g, '_').slice(0, 80);
+      cb(null, `${crypto.randomBytes(8).toString('hex')}-${safe}`);
+    },
+  }),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = /\.(pdf|doc|docx|xls|xlsx|ppt|pptx|txt|png|jpe?g)$/i.test(file.originalname);
+    if (allowed) cb(null, true);
+    else cb(new Error('Allowed: PDF, Word, Excel, PPT, images, TXT'));
+  },
+});
 
 // Public: list open requirements (for startups to explore) - similarity/relevance search: title first, then description
 router.get('/', authMiddleware, async (req, res) => {
@@ -18,7 +39,7 @@ router.get('/', authMiddleware, async (req, res) => {
              r.created_at,
              (SELECT COUNT(*) FROM expressions_of_interest e WHERE e.requirement_id = r.id) AS interest_count
       FROM requirements r
-      WHERE r.status = 'OPEN'
+      WHERE r.status = 'OPEN' AND r.approval_status = 'APPROVED'
     `;
     const params = [];
     let n = 1;
@@ -59,7 +80,7 @@ router.get('/:id', authMiddleware, async (req, res) => {
               r.created_at,
               (SELECT COUNT(*) FROM expressions_of_interest e WHERE e.requirement_id = r.id) AS interest_count
        FROM requirements r
-       WHERE r.id = $1 AND r.status = 'OPEN'`,
+       WHERE r.id = $1 AND r.status = 'OPEN' AND r.approval_status = 'APPROVED'`,
       [req.params.id]
     );
     if (r.rows.length === 0) return res.status(404).json({ message: 'Requirement not found' });
@@ -70,38 +91,66 @@ router.get('/:id', authMiddleware, async (req, res) => {
   }
 });
 
-// Express interest (STARTUP only)
-router.post('/:id/express-interest', authMiddleware, requireAuth, requireApproved, requireRole('STARTUP'), async (req, res) => {
-  try {
-    const { message, proposed_budget, proposed_timeline_start, proposed_timeline_end, portfolio_link } = req.body;
-    const requirementId = req.params.id;
-    const startupUserId = req.user.id;
+// Express interest (STARTUP only); accepts multipart/form-data with optional document attachment
+router.post(
+  '/:id/express-interest',
+  authMiddleware,
+  requireAuth,
+  requireApproved,
+  requireRole('STARTUP'),
+  (req, res, next) => {
+    proposalUpload.single('document')(req, res, (err) => {
+      if (err && err.code === 'LIMIT_FILE_SIZE') return res.status(400).json({ message: 'File too large (max 10MB)' });
+      if (err) return res.status(400).json({ message: err.message || 'Invalid file' });
+      next();
+    });
+  },
+  async (req, res) => {
+    try {
+      const body = req.body || {};
+      const message = body.message != null ? String(body.message).trim() : null;
+      const proposed_budget = body.proposed_budget != null && body.proposed_budget !== '' ? parseFloat(body.proposed_budget) : null;
+      const proposed_timeline_start = body.proposed_timeline_start || null;
+      const proposed_timeline_end = body.proposed_timeline_end || null;
+      const portfolio_link = body.portfolio_link != null ? String(body.portfolio_link).trim() || null : null;
+      const requirementId = req.params.id;
+      const startupUserId = req.user.id;
 
-    const check = await query('SELECT id FROM requirements WHERE id = $1 AND status = $2', [requirementId, 'OPEN']);
-    if (check.rows.length === 0) {
-      return res.status(404).json({ message: 'Requirement not found or not open' });
+      let attachment_path = null;
+      let attachment_original_name = null;
+      if (req.file && req.file.path) {
+        attachment_path = path.relative(path.join(process.cwd(), 'uploads'), req.file.path).replace(/\\/g, '/');
+        attachment_original_name = req.file.originalname || req.file.filename;
+      }
+
+      const check = await query('SELECT id FROM requirements WHERE id = $1 AND status = $2 AND approval_status = $3', [requirementId, 'OPEN', 'APPROVED']);
+      if (check.rows.length === 0) {
+        return res.status(404).json({ message: 'Requirement not found or not open' });
+      }
+
+      const ins = await query(
+        `INSERT INTO expressions_of_interest (requirement_id, startup_user_id, message, proposed_budget, proposed_timeline_start, proposed_timeline_end, portfolio_link, attachment_path, attachment_original_name)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         ON CONFLICT (requirement_id, startup_user_id) DO UPDATE SET
+           message = EXCLUDED.message,
+           proposed_budget = EXCLUDED.proposed_budget,
+           proposed_timeline_start = EXCLUDED.proposed_timeline_start,
+           proposed_timeline_end = EXCLUDED.proposed_timeline_end,
+           portfolio_link = EXCLUDED.portfolio_link,
+           attachment_path = EXCLUDED.attachment_path,
+           attachment_original_name = EXCLUDED.attachment_original_name,
+           status = 'PENDING',
+           updated_at = NOW()
+         RETURNING *`,
+        [requirementId, startupUserId, message, proposed_budget, proposed_timeline_start, proposed_timeline_end, portfolio_link, attachment_path, attachment_original_name]
+      );
+      res.status(201).json(ins.rows[0]);
+    } catch (err) {
+      console.error('Express interest:', err);
+      res.status(500).json({ message: 'Failed to submit interest' });
     }
-
-    const ins = await query(
-      `INSERT INTO expressions_of_interest (requirement_id, startup_user_id, message, proposed_budget, proposed_timeline_start, proposed_timeline_end, portfolio_link)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       ON CONFLICT (requirement_id, startup_user_id) DO UPDATE SET
-         message = EXCLUDED.message,
-         proposed_budget = EXCLUDED.proposed_budget,
-         proposed_timeline_start = EXCLUDED.proposed_timeline_start,
-         proposed_timeline_end = EXCLUDED.proposed_timeline_end,
-         portfolio_link = EXCLUDED.portfolio_link,
-         status = 'PENDING',
-         updated_at = NOW()
-       RETURNING *`,
-      [requirementId, startupUserId, message || null, proposed_budget || null, proposed_timeline_start || null, proposed_timeline_end || null, portfolio_link || null]
-    );
-    res.status(201).json(ins.rows[0]);
-  } catch (err) {
-    console.error('Express interest:', err);
-    res.status(500).json({ message: 'Failed to submit interest' });
   }
-});
+);
 
 // My expressions of interest (STARTUP)
 router.get('/my/interests', authMiddleware, requireAuth, requireApproved, requireRole('STARTUP'), async (req, res) => {

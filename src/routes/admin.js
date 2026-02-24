@@ -200,15 +200,17 @@ router.post('/users/:userId/request-reverification', async (req, res) => {
 // User counts and summary for admin dashboard
 router.get('/stats', async (req, res) => {
   try {
-    const [users, pending, requirements, eoi] = await Promise.all([
+    const [users, pending, pendingReqs, requirements, eoi] = await Promise.all([
       query('SELECT COUNT(*) AS total FROM users WHERE role IN (\'GCC\', \'STARTUP\')'),
       query('SELECT COUNT(*) AS total FROM users WHERE role IN (\'GCC\', \'STARTUP\') AND approval_status = \'PENDING\''),
-      query('SELECT COUNT(*) AS total FROM requirements WHERE status = \'OPEN\''),
+      query("SELECT COUNT(*) AS total FROM requirements WHERE approval_status = 'PENDING_APPROVAL'"),
+      query("SELECT COUNT(*) AS total FROM requirements WHERE status = 'OPEN' AND approval_status = 'APPROVED'"),
       query('SELECT COUNT(*) AS total FROM expressions_of_interest WHERE status = \'PENDING\''),
     ]);
     res.json({
       totalUsers: parseInt(users.rows[0].total, 10),
       pendingApprovals: parseInt(pending.rows[0].total, 10),
+      pendingRequirementApprovals: parseInt(pendingReqs.rows[0].total, 10),
       openRequirements: parseInt(requirements.rows[0].total, 10),
       pendingInterests: parseInt(eoi.rows[0].total, 10),
     });
@@ -246,6 +248,81 @@ router.get('/activities', async (req, res) => {
   } catch (err) {
     console.error('Admin activities:', err);
     res.status(500).json({ message: 'Failed to get activities' });
+  }
+});
+
+// Requirement approvals: list pending, approve, send back with remarks, reject with remarks
+router.get('/requirement-approvals', async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT r.id, r.gcc_user_id, r.title, r.description, r.category, r.priority, r.status,
+              r.approval_status, r.admin_remarks, r.admin_remarks_at, r.created_at,
+              u.name AS gcc_name, u.email AS gcc_email
+       FROM requirements r
+       JOIN users u ON u.id = r.gcc_user_id
+       WHERE r.approval_status = 'PENDING_APPROVAL'
+       ORDER BY r.created_at ASC`
+    );
+    res.json(r.rows);
+  } catch (err) {
+    console.error('Admin requirement approvals list:', err);
+    res.status(500).json({ message: 'Failed to list requirement approvals' });
+  }
+});
+
+router.post('/requirement-approvals/:requirementId/approve', async (req, res) => {
+  try {
+    const { requirementId } = req.params;
+    const r = await query(
+      `UPDATE requirements
+       SET approval_status = 'APPROVED', admin_remarks = NULL, admin_remarks_at = NULL, updated_at = NOW()
+       WHERE id = $1 AND approval_status = 'PENDING_APPROVAL'
+       RETURNING id, title, approval_status`,
+      [requirementId]
+    );
+    if (r.rows.length === 0) return res.status(404).json({ message: 'Requirement not found or already processed' });
+    res.json(r.rows[0]);
+  } catch (err) {
+    console.error('Admin requirement approve:', err);
+    res.status(500).json({ message: 'Failed to approve requirement' });
+  }
+});
+
+router.post('/requirement-approvals/:requirementId/send-back', async (req, res) => {
+  try {
+    const { requirementId } = req.params;
+    const remarks = req.body?.remarks != null ? String(req.body.remarks).trim() : '';
+    const r = await query(
+      `UPDATE requirements
+       SET approval_status = 'SENT_BACK', admin_remarks = $2, admin_remarks_at = NOW(), updated_at = NOW()
+       WHERE id = $1 AND approval_status = 'PENDING_APPROVAL'
+       RETURNING id, title, approval_status, admin_remarks, admin_remarks_at`,
+      [requirementId, remarks || null]
+    );
+    if (r.rows.length === 0) return res.status(404).json({ message: 'Requirement not found or already processed' });
+    res.json(r.rows[0]);
+  } catch (err) {
+    console.error('Admin requirement send-back:', err);
+    res.status(500).json({ message: 'Failed to send back requirement' });
+  }
+});
+
+router.post('/requirement-approvals/:requirementId/reject', async (req, res) => {
+  try {
+    const { requirementId } = req.params;
+    const remarks = req.body?.remarks != null ? String(req.body.remarks).trim() : '';
+    const r = await query(
+      `UPDATE requirements
+       SET approval_status = 'REJECTED', admin_remarks = $2, admin_remarks_at = NOW(), updated_at = NOW()
+       WHERE id = $1 AND approval_status = 'PENDING_APPROVAL'
+       RETURNING id, title, approval_status, admin_remarks, admin_remarks_at`,
+      [requirementId, remarks || null]
+    );
+    if (r.rows.length === 0) return res.status(404).json({ message: 'Requirement not found or already processed' });
+    res.json(r.rows[0]);
+  } catch (err) {
+    console.error('Admin requirement reject:', err);
+    res.status(500).json({ message: 'Failed to reject requirement' });
   }
 });
 

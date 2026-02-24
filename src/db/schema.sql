@@ -100,6 +100,9 @@ CREATE TABLE IF NOT EXISTS requirements (
   category VARCHAR(100) NOT NULL,
   priority VARCHAR(20) NOT NULL DEFAULT 'MEDIUM' CHECK (priority IN ('LOW', 'MEDIUM', 'HIGH', 'URGENT')),
   status VARCHAR(20) NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED')),
+  approval_status VARCHAR(20) NOT NULL DEFAULT 'PENDING_APPROVAL' CHECK (approval_status IN ('PENDING_APPROVAL', 'APPROVED', 'SENT_BACK', 'REJECTED')),
+  admin_remarks TEXT,
+  admin_remarks_at TIMESTAMPTZ,
   budget_min DECIMAL(15,2),
   budget_max DECIMAL(15,2),
   budget_currency VARCHAR(10) DEFAULT 'USD',
@@ -116,6 +119,7 @@ CREATE TABLE IF NOT EXISTS requirements (
 
 CREATE INDEX IF NOT EXISTS idx_requirements_gcc_user_id ON requirements(gcc_user_id);
 CREATE INDEX IF NOT EXISTS idx_requirements_status ON requirements(status);
+CREATE INDEX IF NOT EXISTS idx_requirements_approval_status ON requirements(approval_status);
 CREATE INDEX IF NOT EXISTS idx_requirements_category ON requirements(category);
 
 -- Expressions of interest (startups applying to requirements)
@@ -128,6 +132,8 @@ CREATE TABLE IF NOT EXISTS expressions_of_interest (
   proposed_timeline_start DATE,
   proposed_timeline_end DATE,
   portfolio_link VARCHAR(500),
+  attachment_path VARCHAR(500),
+  attachment_original_name VARCHAR(255),
   status VARCHAR(20) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'ACCEPTED', 'REJECTED')),
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
