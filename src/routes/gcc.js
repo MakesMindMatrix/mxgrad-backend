@@ -22,7 +22,24 @@ router.get('/profile', async (req, res) => {
   }
 });
 
-// Update GCC profile
+// Normalize optional string: empty or whitespace -> null (allows partial updates; no not-null required for Operational fields)
+function optStr(v) {
+  if (v == null) return null;
+  if (typeof v !== 'string') return v;
+  const t = v.trim();
+  return t === '' ? null : t;
+}
+// Mobile/phone: only digits, optional + and spaces; reject if contains letters
+function validMobile(v) {
+  if (v == null || (typeof v === 'string' && v.trim() === '')) return null;
+  const s = String(v).trim();
+  if (s === '') return null;
+  const digitsOnly = s.replace(/\s/g, '').replace(/^\+/, '').replace(/-/g, '');
+  if (!/^\d+$/.test(digitsOnly)) return undefined;
+  return s;
+}
+
+// Update GCC profile (partial update; only Standard information fields are encouraged to be filled; Operational optional)
 router.put('/profile', async (req, res) => {
   try {
     const {
@@ -52,6 +69,16 @@ router.put('/profile', async (req, res) => {
     const yearEst = year_established != null && year_established !== '' ? parseInt(year_established, 10) : null;
     const yearEstNum = Number.isInteger(yearEst) ? yearEst : null;
 
+    const phoneVal = optStr(phone);
+    const mobileSecVal = validMobile(mobile_secondary);
+    const altPhoneVal = validMobile(alternate_contact_phone);
+    if (mobile_secondary != null && String(mobile_secondary).trim() !== '' && mobileSecVal === undefined) {
+      return res.status(400).json({ message: 'Mobile should contain only digits (and optional + or spaces).' });
+    }
+    if (alternate_contact_phone != null && String(alternate_contact_phone).trim() !== '' && altPhoneVal === undefined) {
+      return res.status(400).json({ message: 'Alternate contact phone should contain only digits (and optional + or spaces).' });
+    }
+
     const r = await query(
       `UPDATE gcc_profiles SET
         company_name = COALESCE($2, company_name),
@@ -80,27 +107,27 @@ router.put('/profile', async (req, res) => {
        RETURNING *`,
       [
         req.user.id,
-        company_name,
-        industry,
-        location,
-        size,
-        description,
-        website,
-        contact_person,
-        phone,
-        linkedin,
-        parent_company,
-        headquarters_location,
-        gcc_locations,
+        optStr(company_name),
+        optStr(industry),
+        optStr(location),
+        optStr(size),
+        optStr(description),
+        optStr(website),
+        optStr(contact_person),
+        phoneVal,
+        optStr(linkedin),
+        optStr(parent_company),
+        optStr(headquarters_location),
+        optStr(gcc_locations),
         yearEstNum,
-        contact_designation,
-        contact_email,
-        additional_email && typeof additional_email === 'string' ? additional_email.trim() || null : null,
-        mobile_secondary && typeof mobile_secondary === 'string' ? mobile_secondary.trim() || null : null,
-        alternate_contact_person && typeof alternate_contact_person === 'string' ? alternate_contact_person.trim() || null : null,
-        alternate_contact_designation && typeof alternate_contact_designation === 'string' ? alternate_contact_designation.trim() || null : null,
-        alternate_contact_email && typeof alternate_contact_email === 'string' ? alternate_contact_email.trim() || null : null,
-        alternate_contact_phone && typeof alternate_contact_phone === 'string' ? alternate_contact_phone.trim() || null : null,
+        optStr(contact_designation),
+        optStr(contact_email),
+        optStr(additional_email),
+        mobileSecVal !== undefined ? mobileSecVal : optStr(mobile_secondary),
+        optStr(alternate_contact_person),
+        optStr(alternate_contact_designation),
+        optStr(alternate_contact_email),
+        altPhoneVal !== undefined ? altPhoneVal : optStr(alternate_contact_phone),
       ]
     );
     if (r.rows.length === 0) {
