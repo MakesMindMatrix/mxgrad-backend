@@ -37,6 +37,10 @@ CREATE TABLE IF NOT EXISTS gcc_profiles (
   additional_email VARCHAR(255),
   mobile_primary VARCHAR(50),
   mobile_secondary VARCHAR(50),
+  alternate_contact_person VARCHAR(255),
+  alternate_contact_designation VARCHAR(255),
+  alternate_contact_email VARCHAR(255),
+  alternate_contact_phone VARCHAR(50),
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );

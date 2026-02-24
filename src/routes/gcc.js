@@ -43,6 +43,10 @@ router.put('/profile', async (req, res) => {
       contact_email,
       additional_email,
       mobile_secondary,
+      alternate_contact_person,
+      alternate_contact_designation,
+      alternate_contact_email,
+      alternate_contact_phone,
     } = req.body;
 
     const yearEst = year_established != null && year_established !== '' ? parseInt(year_established, 10) : null;
@@ -67,6 +71,10 @@ router.put('/profile', async (req, res) => {
         contact_email = COALESCE($16, contact_email),
         additional_email = COALESCE($17, additional_email),
         mobile_secondary = COALESCE($18, mobile_secondary),
+        alternate_contact_person = COALESCE($19, alternate_contact_person),
+        alternate_contact_designation = COALESCE($20, alternate_contact_designation),
+        alternate_contact_email = COALESCE($21, alternate_contact_email),
+        alternate_contact_phone = COALESCE($22, alternate_contact_phone),
         updated_at = NOW()
        WHERE user_id = $1
        RETURNING *`,
@@ -89,6 +97,10 @@ router.put('/profile', async (req, res) => {
         contact_email,
         additional_email && typeof additional_email === 'string' ? additional_email.trim() || null : null,
         mobile_secondary && typeof mobile_secondary === 'string' ? mobile_secondary.trim() || null : null,
+        alternate_contact_person && typeof alternate_contact_person === 'string' ? alternate_contact_person.trim() || null : null,
+        alternate_contact_designation && typeof alternate_contact_designation === 'string' ? alternate_contact_designation.trim() || null : null,
+        alternate_contact_email && typeof alternate_contact_email === 'string' ? alternate_contact_email.trim() || null : null,
+        alternate_contact_phone && typeof alternate_contact_phone === 'string' ? alternate_contact_phone.trim() || null : null,
       ]
     );
     if (r.rows.length === 0) {
