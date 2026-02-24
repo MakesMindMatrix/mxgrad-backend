@@ -41,6 +41,8 @@ router.put('/profile', async (req, res) => {
       year_established,
       contact_designation,
       contact_email,
+      additional_email,
+      mobile_secondary,
     } = req.body;
 
     const yearEst = year_established != null && year_established !== '' ? parseInt(year_established, 10) : null;
@@ -63,6 +65,8 @@ router.put('/profile', async (req, res) => {
         year_established = COALESCE($14, year_established),
         contact_designation = COALESCE($15, contact_designation),
         contact_email = COALESCE($16, contact_email),
+        additional_email = COALESCE($17, additional_email),
+        mobile_secondary = COALESCE($18, mobile_secondary),
         updated_at = NOW()
        WHERE user_id = $1
        RETURNING *`,
@@ -83,6 +87,8 @@ router.put('/profile', async (req, res) => {
         yearEstNum,
         contact_designation,
         contact_email,
+        additional_email && typeof additional_email === 'string' ? additional_email.trim() || null : null,
+        mobile_secondary && typeof mobile_secondary === 'string' ? mobile_secondary.trim() || null : null,
       ]
     );
     if (r.rows.length === 0) {

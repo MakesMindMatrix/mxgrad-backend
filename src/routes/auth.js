@@ -10,7 +10,7 @@ const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 // Register (GCC or STARTUP only; approval_status = PENDING)
 router.post('/register', async (req, res) => {
   try {
-    const { name, email, password, role, company_website, description, gst_number, additional_email, mobile_primary, mobile_secondary } = req.body;
+    const { name, email, password, role, company_website, description, gst_number, additional_email, mobile_primary, mobile_secondary, company_name, parent_company, year_established, industry } = req.body;
     if (!name || !email || !password || !role) {
       return res.status(400).json({ message: 'Name, email, password and role are required' });
     }
@@ -21,6 +21,11 @@ router.post('/register', async (req, res) => {
     const addlEmail = additional_email && typeof additional_email === 'string' ? additional_email.trim() || null : null;
     const mob1 = mobile_primary && typeof mobile_primary === 'string' ? mobile_primary.trim() || null : null;
     const mob2 = mobile_secondary && typeof mobile_secondary === 'string' ? mobile_secondary.trim() || null : null;
+    const gccName = company_name && typeof company_name === 'string' ? company_name.trim() || null : null;
+    const parentCo = parent_company && typeof parent_company === 'string' ? parent_company.trim() || null : null;
+    const yearEst = year_established != null && year_established !== '' ? parseInt(year_established, 10) : null;
+    const yearEstNum = Number.isInteger(yearEst) ? yearEst : null;
+    const industryVal = industry && typeof industry === 'string' ? industry.trim() || null : null;
     if (!['GCC', 'STARTUP'].includes(role)) {
       return res.status(400).json({ message: 'Role must be GCC or STARTUP' });
     }
@@ -47,9 +52,9 @@ router.post('/register', async (req, res) => {
 
     if (role === 'GCC') {
       await query(
-        `INSERT INTO gcc_profiles (user_id, website, description, gst_number, additional_email, mobile_primary, mobile_secondary)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [user.id, website, descTrim, gst, addlEmail, mob1, mob2]
+        `INSERT INTO gcc_profiles (user_id, company_name, parent_company, year_established, industry, website, description, gst_number, mobile_primary)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [user.id, gccName, parentCo, yearEstNum, industryVal, website, descTrim, gst, mob1]
       );
     } else {
       await query(
