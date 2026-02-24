@@ -109,7 +109,8 @@ router.post(
     try {
       const body = req.body || {};
       const message = body.message != null ? String(body.message).trim() : null;
-      const proposed_budget = body.proposed_budget != null && body.proposed_budget !== '' ? parseFloat(body.proposed_budget) : null;
+      const proposedBudgetRaw = body.proposed_budget != null && body.proposed_budget !== '' ? parseFloat(body.proposed_budget) : null;
+      const proposed_budget = proposedBudgetRaw != null && !Number.isNaN(proposedBudgetRaw) ? proposedBudgetRaw : null;
       const proposed_timeline_start = body.proposed_timeline_start || null;
       const proposed_timeline_end = body.proposed_timeline_end || null;
       const portfolio_link = body.portfolio_link != null ? String(body.portfolio_link).trim() || null : null;

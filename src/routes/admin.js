@@ -208,11 +208,11 @@ router.get('/stats', async (req, res) => {
       query('SELECT COUNT(*) AS total FROM expressions_of_interest WHERE status = \'PENDING\''),
     ]);
     res.json({
-      totalUsers: parseInt(users.rows[0].total, 10),
-      pendingApprovals: parseInt(pending.rows[0].total, 10),
-      pendingRequirementApprovals: parseInt(pendingReqs.rows[0].total, 10),
-      openRequirements: parseInt(requirements.rows[0].total, 10),
-      pendingInterests: parseInt(eoi.rows[0].total, 10),
+      totalUsers: parseInt(users.rows[0]?.total ?? 0, 10),
+      pendingApprovals: parseInt(pending.rows[0]?.total ?? 0, 10),
+      pendingRequirementApprovals: parseInt(pendingReqs.rows[0]?.total ?? 0, 10),
+      openRequirements: parseInt(requirements.rows[0]?.total ?? 0, 10),
+      pendingInterests: parseInt(eoi.rows[0]?.total ?? 0, 10),
     });
   } catch (err) {
     console.error('Admin stats:', err);
@@ -223,7 +223,8 @@ router.get('/stats', async (req, res) => {
 // Recent activity: recent requirements posted, recent expressions of interest
 router.get('/activities', async (req, res) => {
   try {
-    const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
+    const limitNum = parseInt(req.query.limit, 10);
+    const limit = Number.isInteger(limitNum) && limitNum > 0 ? Math.min(limitNum, 100) : 50;
     const [reqs, interests] = await Promise.all([
       query(
         `SELECT r.id, r.title, r.category, r.status, r.created_at, u.name AS gcc_name, u.email AS gcc_email

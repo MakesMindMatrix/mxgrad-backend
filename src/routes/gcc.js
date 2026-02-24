@@ -43,6 +43,9 @@ router.put('/profile', async (req, res) => {
       contact_email,
     } = req.body;
 
+    const yearEst = year_established != null && year_established !== '' ? parseInt(year_established, 10) : null;
+    const yearEstNum = Number.isInteger(yearEst) ? yearEst : null;
+
     const r = await query(
       `UPDATE gcc_profiles SET
         company_name = COALESCE($2, company_name),
@@ -77,7 +80,7 @@ router.put('/profile', async (req, res) => {
         parent_company,
         headquarters_location,
         gcc_locations,
-        year_established != null ? parseInt(year_established, 10) : null,
+        yearEstNum,
         contact_designation,
         contact_email,
       ]
@@ -297,6 +300,11 @@ router.put('/requirements/:id', async (req, res) => {
     if (existing.rows.length === 0) return res.status(404).json({ message: 'Requirement not found' });
     const isResubmit = resubmit === true && existing.rows[0].approval_status === 'SENT_BACK';
 
+    const budgetMinNum = budget_min != null && budget_min !== '' ? Number(budget_min) : null;
+    const budgetMaxNum = budget_max != null && budget_max !== '' ? Number(budget_max) : null;
+    const budget_min_safe = budgetMinNum != null && !Number.isNaN(budgetMinNum) ? budgetMinNum : null;
+    const budget_max_safe = budgetMaxNum != null && !Number.isNaN(budgetMaxNum) ? budgetMaxNum : null;
+
     const r = await query(
       `UPDATE requirements SET
         title = COALESCE($2, title),
@@ -325,8 +333,8 @@ router.put('/requirements/:id', async (req, res) => {
         category,
         priority,
         status,
-        budget_min,
-        budget_max,
+        budget_min_safe,
+        budget_max_safe,
         timeline_start,
         timeline_end,
         tech_stack,
