@@ -426,6 +426,209 @@ router.delete('/eoi-approvals/:eoiId', async (req, res) => {
   }
 });
 
+// Requirements CRUD (admin): list all, get one, create, update, delete
+router.get('/requirements', async (req, res) => {
+  try {
+    const { category, status, approval_status, search } = req.query;
+    const searchTrim = search && typeof search === 'string' ? search.trim() : '';
+    const hasSearch = searchTrim.length > 0;
+    let sql = `
+      SELECT r.id, r.gcc_user_id, r.title, r.description, r.category, r.priority, r.status, r.approval_status,
+             r.budget_min, r.budget_max, r.budget_currency, r.timeline_start, r.timeline_end,
+             r.tech_stack, r.skills, r.industry_type, r.nda_required, r.anonymous_id, r.created_at, r.updated_at,
+             u.name AS gcc_name, u.email AS gcc_email,
+             (SELECT COUNT(*) FROM expressions_of_interest e WHERE e.requirement_id = r.id) AS interest_count
+      FROM requirements r
+      JOIN users u ON u.id = r.gcc_user_id
+      WHERE 1=1
+    `;
+    const params = [];
+    let n = 1;
+    if (category) {
+      params.push(category);
+      sql += ` AND r.category = $${n++}`;
+    }
+    if (status) {
+      params.push(status);
+      sql += ` AND r.status = $${n++}`;
+    }
+    if (approval_status) {
+      params.push(approval_status);
+      sql += ` AND r.approval_status = $${n++}`;
+    }
+    if (hasSearch) {
+      params.push(`%${searchTrim}%`);
+      sql += ` AND (r.title ILIKE $${n} OR r.description ILIKE $${n})`;
+      n++;
+    }
+    sql += ' ORDER BY r.created_at DESC';
+    const r = await query(sql, params);
+    res.json(r.rows);
+  } catch (err) {
+    console.error('Admin requirements list:', err);
+    res.status(500).json({ message: 'Failed to list requirements' });
+  }
+});
+
+router.post('/requirements', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const {
+      gcc_user_id,
+      title,
+      description,
+      category,
+      priority,
+      budget_min,
+      budget_max,
+      budget_currency,
+      timeline_start,
+      timeline_end,
+      tech_stack,
+      skills,
+      industry_type,
+      nda_required,
+    } = body;
+    if (!gcc_user_id || !title || !description || !category) {
+      return res.status(400).json({ message: 'gcc_user_id, title, description and category are required' });
+    }
+    const anonId = 'GCC-' + Date.now().toString(36).toUpperCase();
+    const r = await query(
+      `INSERT INTO requirements (
+        gcc_user_id, title, description, category, priority, status, approval_status,
+        budget_min, budget_max, budget_currency, timeline_start, timeline_end,
+        tech_stack, skills, industry_type, nda_required, anonymous_id
+      ) VALUES ($1, $2, $3, $4, COALESCE($5, 'MEDIUM'), 'OPEN', 'APPROVED',
+        $6, $7, COALESCE($8, 'USD'), $9, $10, $11, $12, $13, COALESCE($14, false), $15)
+      RETURNING id, title, category, status, approval_status, created_at`,
+      [
+        gcc_user_id,
+        title,
+        description,
+        category,
+        priority || 'MEDIUM',
+        budget_min ?? null,
+        budget_max ?? null,
+        budget_currency,
+        timeline_start || null,
+        timeline_end || null,
+        tech_stack || [],
+        skills || [],
+        industry_type || null,
+        nda_required,
+        anonId,
+      ]
+    );
+    res.status(201).json(r.rows[0]);
+  } catch (err) {
+    console.error('Admin requirement create:', err);
+    res.status(500).json({ message: 'Failed to create requirement' });
+  }
+});
+
+router.get('/requirements/:requirementId', async (req, res) => {
+  try {
+    const { requirementId } = req.params;
+    const r = await query(
+      `SELECT r.id, r.gcc_user_id, r.title, r.description, r.category, r.priority, r.status, r.approval_status,
+              r.admin_remarks, r.admin_remarks_at, r.budget_min, r.budget_max, r.budget_currency,
+              r.timeline_start, r.timeline_end, r.tech_stack, r.skills, r.industry_type, r.nda_required,
+              r.anonymous_id, r.created_at, r.updated_at,
+              u.name AS gcc_name, u.email AS gcc_email,
+              (SELECT COUNT(*) FROM expressions_of_interest e WHERE e.requirement_id = r.id) AS interest_count
+       FROM requirements r
+       JOIN users u ON u.id = r.gcc_user_id
+       WHERE r.id = $1`,
+      [requirementId]
+    );
+    if (r.rows.length === 0) return res.status(404).json({ message: 'Requirement not found' });
+    res.json(r.rows[0]);
+  } catch (err) {
+    console.error('Admin requirement get:', err);
+    res.status(500).json({ message: 'Failed to get requirement' });
+  }
+});
+
+router.put('/requirements/:requirementId', async (req, res) => {
+  try {
+    const { requirementId } = req.params;
+    const body = req.body || {};
+    const {
+      title,
+      description,
+      category,
+      priority,
+      status,
+      approval_status,
+      budget_min,
+      budget_max,
+      budget_currency,
+      timeline_start,
+      timeline_end,
+      tech_stack,
+      skills,
+      industry_type,
+      nda_required,
+    } = body;
+    const r = await query(
+      `UPDATE requirements SET
+        title = COALESCE($2, title),
+        description = COALESCE($3, description),
+        category = COALESCE($4, category),
+        priority = COALESCE($5, priority),
+        status = COALESCE($6, status),
+        approval_status = COALESCE($7, approval_status),
+        budget_min = $8,
+        budget_max = $9,
+        budget_currency = COALESCE($10, budget_currency),
+        timeline_start = $11,
+        timeline_end = $12,
+        tech_stack = COALESCE($13, tech_stack),
+        skills = COALESCE($14, skills),
+        industry_type = $15,
+        nda_required = COALESCE($16, nda_required),
+        updated_at = NOW()
+       WHERE id = $1
+       RETURNING id, title, category, status, approval_status, updated_at`,
+      [
+        requirementId,
+        title,
+        description,
+        category,
+        priority,
+        status,
+        approval_status,
+        budget_min,
+        budget_max,
+        budget_currency || undefined,
+        timeline_start,
+        timeline_end,
+        tech_stack,
+        skills,
+        industry_type,
+        nda_required,
+      ]
+    );
+    if (r.rows.length === 0) return res.status(404).json({ message: 'Requirement not found' });
+    res.json(r.rows[0]);
+  } catch (err) {
+    console.error('Admin requirement update:', err);
+    res.status(500).json({ message: 'Failed to update requirement' });
+  }
+});
+
+router.delete('/requirements/:requirementId', async (req, res) => {
+  try {
+    const { requirementId } = req.params;
+    const r = await query('DELETE FROM requirements WHERE id = $1 RETURNING id', [requirementId]);
+    if (r.rows.length === 0) return res.status(404).json({ message: 'Requirement not found' });
+    res.status(204).send();
+  } catch (err) {
+    console.error('Admin requirement delete:', err);
+    res.status(500).json({ message: 'Failed to delete requirement' });
+  }
+});
+
 // Active projects: requirements with status IN_PROGRESS (or OPEN with interests)
 router.get('/active-projects', async (req, res) => {
   try {

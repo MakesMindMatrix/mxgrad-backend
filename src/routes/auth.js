@@ -57,10 +57,11 @@ router.post('/register', async (req, res) => {
         [user.id, gccName, parentCo, yearEstNum, industryVal, website, descTrim, gst, mob1]
       );
     } else {
+      const startupCompanyName = company_name && typeof company_name === 'string' ? company_name.trim() || null : null;
       await query(
-        `INSERT INTO startup_profiles (user_id, website, solution_description, gst_number, additional_email, mobile_primary, mobile_secondary)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [user.id, website, descTrim, gst, addlEmail, mob1, mob2]
+        `INSERT INTO startup_profiles (user_id, company_name, website, solution_description, gst_number, additional_email, mobile_primary, mobile_secondary)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [user.id, startupCompanyName, website, descTrim, gst, addlEmail, mob1, mob2]
       );
     }
 
