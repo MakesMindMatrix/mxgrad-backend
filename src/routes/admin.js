@@ -169,12 +169,12 @@ router.put('/users/:userId', async (req, res) => {
   }
 });
 
-// Delete user (and cascade deletes profile)
+// Delete user – erases user and all related data (profiles, requirements, expressions of interest via FK CASCADE)
 router.delete('/users/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
     const r = await query('DELETE FROM users WHERE id = $1 AND role != \'ADMIN\' RETURNING id', [userId]);
-    if (r.rows.length === 0) return res.status(404).json({ message: 'User not found' });
+    if (r.rows.length === 0) return res.status(404).json({ message: 'User not found or cannot delete admin' });
     res.status(204).send();
   } catch (err) {
     console.error('Admin user delete:', err);
