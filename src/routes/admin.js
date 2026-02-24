@@ -9,6 +9,41 @@ router.use(requireAuth);
 router.use(requireApproved);
 router.use(requireRole('ADMIN'));
 
+// Explore: list approved requirements (OPEN + IN_PROGRESS) for admin view with status and interest_count
+router.get('/explore-requirements', async (req, res) => {
+  try {
+    const { category, search } = req.query;
+    const searchTrim = search && typeof search === 'string' ? search.trim() : '';
+    const hasSearch = searchTrim.length > 0;
+    let sql = `
+      SELECT r.id, r.title, r.description, r.category, r.priority, r.status,
+             r.budget_min, r.budget_max, r.budget_currency, r.timeline_start, r.timeline_end,
+             r.tech_stack, r.skills, r.industry_type, r.nda_required, r.anonymous_id,
+             r.created_at,
+             (SELECT COUNT(*) FROM expressions_of_interest e WHERE e.requirement_id = r.id) AS interest_count
+      FROM requirements r
+      WHERE r.approval_status = 'APPROVED' AND r.status IN ('OPEN', 'IN_PROGRESS')
+    `;
+    const params = [];
+    let n = 1;
+    if (category) {
+      params.push(category);
+      sql += ` AND r.category = $${n++}`;
+    }
+    if (hasSearch) {
+      params.push(`%${searchTrim}%`);
+      sql += ` AND (r.title ILIKE $${n} OR r.description ILIKE $${n})`;
+      n++;
+    }
+    sql += ' ORDER BY r.created_at DESC';
+    const r = await query(sql, params);
+    res.json(r.rows);
+  } catch (err) {
+    console.error('Admin explore requirements:', err);
+    res.status(500).json({ message: 'Failed to list requirements' });
+  }
+});
+
 // List pending approvals (GCC and STARTUP with approval_status = PENDING)
 router.get('/approvals', async (req, res) => {
   try {
@@ -324,6 +359,70 @@ router.post('/requirement-approvals/:requirementId/reject', async (req, res) => 
   } catch (err) {
     console.error('Admin requirement reject:', err);
     res.status(500).json({ message: 'Failed to reject requirement' });
+  }
+});
+
+// Expression of interest approvals: list all EOIs, approve, reject, delete
+router.get('/eoi-approvals', async (req, res) => {
+  try {
+    const r = await query(
+      `SELECT e.id, e.requirement_id, e.message, e.status, e.created_at, e.updated_at,
+              r.title AS requirement_title, u.name AS startup_name, u.email AS startup_email
+       FROM expressions_of_interest e
+       JOIN requirements r ON r.id = e.requirement_id
+       JOIN users u ON u.id = e.startup_user_id
+       ORDER BY e.created_at DESC`
+    );
+    res.json(r.rows);
+  } catch (err) {
+    console.error('Admin EOI approvals list:', err);
+    res.status(500).json({ message: 'Failed to list expressions of interest' });
+  }
+});
+
+router.post('/eoi-approvals/:eoiId/approve', async (req, res) => {
+  try {
+    const { eoiId } = req.params;
+    const r = await query(
+      `UPDATE expressions_of_interest SET status = 'ACCEPTED', updated_at = NOW()
+       WHERE id = $1 AND status = 'PENDING'
+       RETURNING id, status`,
+      [eoiId]
+    );
+    if (r.rows.length === 0) return res.status(404).json({ message: 'Expression of interest not found or already processed' });
+    res.json(r.rows[0]);
+  } catch (err) {
+    console.error('Admin EOI approve:', err);
+    res.status(500).json({ message: 'Failed to approve expression of interest' });
+  }
+});
+
+router.post('/eoi-approvals/:eoiId/reject', async (req, res) => {
+  try {
+    const { eoiId } = req.params;
+    const r = await query(
+      `UPDATE expressions_of_interest SET status = 'REJECTED', updated_at = NOW()
+       WHERE id = $1 AND status = 'PENDING'
+       RETURNING id, status`,
+      [eoiId]
+    );
+    if (r.rows.length === 0) return res.status(404).json({ message: 'Expression of interest not found or already processed' });
+    res.json(r.rows[0]);
+  } catch (err) {
+    console.error('Admin EOI reject:', err);
+    res.status(500).json({ message: 'Failed to reject expression of interest' });
+  }
+});
+
+router.delete('/eoi-approvals/:eoiId', async (req, res) => {
+  try {
+    const { eoiId } = req.params;
+    const r = await query('DELETE FROM expressions_of_interest WHERE id = $1 RETURNING id', [eoiId]);
+    if (r.rows.length === 0) return res.status(404).json({ message: 'Expression of interest not found' });
+    res.status(204).send();
+  } catch (err) {
+    console.error('Admin EOI delete:', err);
+    res.status(500).json({ message: 'Failed to delete expression of interest' });
   }
 });
 
