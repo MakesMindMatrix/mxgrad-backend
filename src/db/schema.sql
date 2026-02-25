@@ -139,6 +139,8 @@ CREATE TABLE IF NOT EXISTS expressions_of_interest (
   attachment_path VARCHAR(500),
   attachment_original_name VARCHAR(255),
   status VARCHAR(20) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'ACCEPTED', 'REJECTED')),
+  gcc_response VARCHAR(20) CHECK (gcc_response IN ('ACCEPTED', 'REJECTED')),
+  gcc_responded_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(requirement_id, startup_user_id)

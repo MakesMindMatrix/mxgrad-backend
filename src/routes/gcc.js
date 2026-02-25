@@ -229,7 +229,7 @@ router.post('/interests/:eoiId/reject', async (req, res) => {
 router.get('/interests', async (req, res) => {
   try {
     const r = await query(
-      `SELECT e.id, e.requirement_id, e.status AS interest_status, e.created_at,
+      `SELECT e.id, e.requirement_id, e.status AS interest_status, e.gcc_response, e.created_at,
               r.title AS requirement_title, r.category, r.status AS requirement_status,
               u.name AS startup_name, u.email AS startup_email,
               p.company_name AS startup_company
