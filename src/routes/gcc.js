@@ -185,6 +185,46 @@ router.get('/startups', async (req, res) => {
   }
 });
 
+// GCC accept proposal (record that GCC accepted this EOI)
+router.post('/interests/:eoiId/accept', async (req, res) => {
+  try {
+    const { eoiId } = req.params;
+    const r = await query(
+      `UPDATE expressions_of_interest e
+       SET gcc_response = 'ACCEPTED', gcc_responded_at = NOW(), updated_at = NOW()
+       FROM requirements r
+       WHERE e.requirement_id = r.id AND r.gcc_user_id = $2 AND e.id = $1 AND e.status = 'ACCEPTED'
+       RETURNING e.id, e.gcc_response, e.gcc_responded_at`,
+      [eoiId, req.user.id]
+    );
+    if (r.rows.length === 0) return res.status(404).json({ message: 'Proposal not found or not eligible to accept' });
+    res.json(r.rows[0]);
+  } catch (err) {
+    console.error('GCC accept interest:', err);
+    res.status(500).json({ message: 'Failed to accept proposal' });
+  }
+});
+
+// GCC reject proposal (set EOI status to REJECTED)
+router.post('/interests/:eoiId/reject', async (req, res) => {
+  try {
+    const { eoiId } = req.params;
+    const r = await query(
+      `UPDATE expressions_of_interest e
+       SET status = 'REJECTED', updated_at = NOW()
+       FROM requirements r
+       WHERE e.requirement_id = r.id AND r.gcc_user_id = $2 AND e.id = $1
+       RETURNING e.id, e.status`,
+      [eoiId, req.user.id]
+    );
+    if (r.rows.length === 0) return res.status(404).json({ message: 'Proposal not found' });
+    res.json(r.rows[0]);
+  } catch (err) {
+    console.error('GCC reject interest:', err);
+    res.status(500).json({ message: 'Failed to reject proposal' });
+  }
+});
+
 // Received interests: only admin-approved (ACCEPTED) EOIs; PENDING ones are with admin for approval
 router.get('/interests', async (req, res) => {
   try {
