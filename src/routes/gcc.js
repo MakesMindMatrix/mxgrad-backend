@@ -185,7 +185,7 @@ router.get('/startups', async (req, res) => {
   }
 });
 
-// Received interests: EOI on my requirements (company name + requirement title)
+// Received interests: only admin-approved (ACCEPTED) EOIs; PENDING ones are with admin for approval
 router.get('/interests', async (req, res) => {
   try {
     const r = await query(
@@ -197,6 +197,7 @@ router.get('/interests', async (req, res) => {
        JOIN requirements r ON r.id = e.requirement_id AND r.gcc_user_id = $1
        JOIN users u ON u.id = e.startup_user_id
        LEFT JOIN startup_profiles p ON p.user_id = u.id
+       WHERE e.status = 'ACCEPTED'
        ORDER BY e.created_at DESC`,
       [req.user.id]
     );
@@ -231,7 +232,7 @@ router.get('/active-deals', async (req, res) => {
 router.get('/requirements', async (req, res) => {
   try {
     const r = await query(
-      `SELECT r.*, (SELECT COUNT(*) FROM expressions_of_interest e WHERE e.requirement_id = r.id) AS interest_count
+      `SELECT r.*, (SELECT COUNT(*) FROM expressions_of_interest e WHERE e.requirement_id = r.id AND e.status = 'ACCEPTED') AS interest_count
        FROM requirements r
        WHERE r.gcc_user_id = $1
        ORDER BY r.created_at DESC`,
@@ -311,7 +312,10 @@ router.get('/requirements/:id', async (req, res) => {
     if (r.rows.length === 0) return res.status(404).json({ message: 'Requirement not found' });
     const reqRow = r.rows[0];
     const eoi = await query(
-      'SELECT e.*, u.name as startup_name, u.email as startup_email FROM expressions_of_interest e JOIN users u ON u.id = e.startup_user_id WHERE e.requirement_id = $1',
+      `SELECT e.*, u.name as startup_name, u.email as startup_email
+       FROM expressions_of_interest e
+       JOIN users u ON u.id = e.startup_user_id
+       WHERE e.requirement_id = $1 AND e.status = 'ACCEPTED'`,
       [req.params.id]
     );
     res.json({ ...reqRow, applications: eoi.rows });
