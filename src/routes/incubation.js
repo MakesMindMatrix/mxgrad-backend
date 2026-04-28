@@ -5,6 +5,18 @@ import { query } from '../db/pool.js';
 
 const router = Router();
 
+const PAN_REGEX = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
+
+async function isPanTaken(pan) {
+  const panUpper = pan.toUpperCase();
+  const [g, s, i] = await Promise.all([
+    query('SELECT 1 FROM gcc_profiles WHERE pan_number = $1', [panUpper]),
+    query('SELECT 1 FROM startup_profiles WHERE pan_number = $1', [panUpper]),
+    query('SELECT 1 FROM incubation_profiles WHERE pan_number = $1', [panUpper]),
+  ]);
+  return g.rows.length > 0 || s.rows.length > 0 || i.rows.length > 0;
+}
+
 router.use(authMiddleware);
 router.use(requireAuth);
 router.use(requireApproved);
@@ -88,8 +100,8 @@ router.get('/startups', async (req, res) => {
       : '';
     const params = [req.user.id];
     let sql = `
-      SELECT u.id, u.name, u.email, u.approval_status, u.created_at,
-             p.company_name, p.website, p.industry, p.solution_description, p.location
+      SELECT u.id, u.name, u.email, u.approval_status, u.login_enabled, u.created_at,
+             p.company_name, p.website, p.industry, p.solution_description, p.location, p.pan_number
       FROM users u
       JOIN startup_profiles p ON p.user_id = u.id
       WHERE u.role = 'STARTUP' AND u.managed_by_user_id = $1
@@ -120,6 +132,7 @@ router.post('/startups', async (req, res) => {
       additional_email,
       mobile_primary,
       mobile_secondary,
+      pan_number,
     } = req.body || {};
 
     if (!name || !email || !password || !description) {
@@ -127,6 +140,17 @@ router.post('/startups', async (req, res) => {
     }
     if (String(password).length < 6) {
       return res.status(400).json({ message: 'Password must be at least 6 characters' });
+    }
+
+    if (!pan_number || !String(pan_number).trim()) {
+      return res.status(400).json({ message: 'Company PAN number is required' });
+    }
+    const panUpper = String(pan_number).trim().toUpperCase();
+    if (!PAN_REGEX.test(panUpper)) {
+      return res.status(400).json({ message: 'Invalid PAN format. Expected: 5 letters + 4 digits + 1 letter (e.g. AABCE1234F)' });
+    }
+    if (await isPanTaken(panUpper)) {
+      return res.status(409).json({ message: 'This PAN number is already registered with another account' });
     }
 
     const existing = await query('SELECT id FROM users WHERE email = $1', [String(email).trim().toLowerCase()]);
@@ -144,8 +168,8 @@ router.post('/startups', async (req, res) => {
     const user = userResult.rows[0];
 
     await query(
-      `INSERT INTO startup_profiles (user_id, company_name, website, solution_description, gst_number, additional_email, mobile_primary, mobile_secondary)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      `INSERT INTO startup_profiles (user_id, company_name, website, solution_description, gst_number, additional_email, mobile_primary, mobile_secondary, pan_number)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
       [
         user.id,
         optStr(company_name) ?? String(name).trim(),
@@ -155,6 +179,7 @@ router.post('/startups', async (req, res) => {
         optStr(additional_email),
         optStr(mobile_primary),
         optStr(mobile_secondary),
+        panUpper,
       ]
     );
 
@@ -172,6 +197,31 @@ router.post('/startups', async (req, res) => {
   } catch (err) {
     console.error('Incubation startup create:', err);
     res.status(500).json({ message: 'Failed to create startup' });
+  }
+});
+
+router.patch('/startups/:startupId/login-access', async (req, res) => {
+  try {
+    const { startupId } = req.params;
+    const { enabled } = req.body;
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ message: '"enabled" must be a boolean' });
+    }
+
+    // Verify this startup is actually managed by the requesting incubation
+    const check = await query(
+      `SELECT id FROM users WHERE id = $1 AND role = 'STARTUP' AND managed_by_user_id = $2`,
+      [startupId, req.user.id]
+    );
+    if (check.rows.length === 0) {
+      return res.status(404).json({ message: 'Startup not found or not managed by you' });
+    }
+
+    await query('UPDATE users SET login_enabled = $1 WHERE id = $2', [enabled, startupId]);
+    res.json({ id: startupId, login_enabled: enabled });
+  } catch (err) {
+    console.error('Incubation toggle login:', err);
+    res.status(500).json({ message: 'Failed to update login access' });
   }
 });
 
