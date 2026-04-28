@@ -7,8 +7,10 @@ import authRoutes from './routes/auth.js';
 import usersRoutes from './routes/users.js';
 import gccRoutes from './routes/gcc.js';
 import startupRoutes from './routes/startup.js';
+import incubationRoutes from './routes/incubation.js';
 import requirementsRoutes from './routes/requirements.js';
 import adminRoutes from './routes/admin.js';
+import { bootstrapDatabase } from './db/bootstrap.js';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -28,6 +30,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/gcc', gccRoutes);
 app.use('/api/startup', startupRoutes);
+app.use('/api/incubation', incubationRoutes);
 app.use('/api/requirements', requirementsRoutes);
 app.use('/api/admin', adminRoutes);
 
@@ -40,6 +43,15 @@ app.use((err, req, res, next) => {
   res.status(500).json({ message: 'Internal server error' });
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`);
+async function startServer() {
+  await bootstrapDatabase();
+
+  app.listen(PORT, () => {
+    console.log(`Server running at http://localhost:${PORT}`);
+  });
+}
+
+startServer().catch((err) => {
+  console.error('Server startup failed:', err);
+  process.exit(1);
 });

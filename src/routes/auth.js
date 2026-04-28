@@ -7,7 +7,7 @@ import { authMiddleware, requireAuth, JWT_SECRET } from '../middleware/auth.js';
 const router = Router();
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 
-// Register (GCC or STARTUP only; approval_status = PENDING)
+// Register (GCC, STARTUP or INCUBATION only; approval_status = PENDING)
 router.post('/register', async (req, res) => {
   try {
     const { name, email, password, role, company_website, description, gst_number, additional_email, mobile_primary, mobile_secondary, company_name, parent_company, year_established, industry } = req.body;
@@ -26,8 +26,8 @@ router.post('/register', async (req, res) => {
     const yearEst = year_established != null && year_established !== '' ? parseInt(year_established, 10) : null;
     const yearEstNum = Number.isInteger(yearEst) ? yearEst : null;
     const industryVal = industry && typeof industry === 'string' ? industry.trim() || null : null;
-    if (!['GCC', 'STARTUP'].includes(role)) {
-      return res.status(400).json({ message: 'Role must be GCC or STARTUP' });
+    if (!['GCC', 'STARTUP', 'INCUBATION'].includes(role)) {
+      return res.status(400).json({ message: 'Role must be GCC, STARTUP or INCUBATION' });
     }
     if (password.length < 6) {
       return res.status(400).json({ message: 'Password must be at least 6 characters' });
@@ -56,12 +56,19 @@ router.post('/register', async (req, res) => {
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
         [user.id, gccName, parentCo, yearEstNum, industryVal, website, descTrim, gst, mob1]
       );
-    } else {
+    } else if (role === 'STARTUP') {
       const startupCompanyName = company_name && typeof company_name === 'string' ? company_name.trim() || null : null;
       await query(
         `INSERT INTO startup_profiles (user_id, company_name, website, solution_description, gst_number, additional_email, mobile_primary, mobile_secondary)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
         [user.id, startupCompanyName, website, descTrim, gst, addlEmail, mob1, mob2]
+      );
+    } else {
+      const incubationCompanyName = company_name && typeof company_name === 'string' ? company_name.trim() || null : null;
+      await query(
+        `INSERT INTO incubation_profiles (user_id, company_name, website, description, gst_number, additional_email, mobile_primary, mobile_secondary)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [user.id, incubationCompanyName, website, descTrim, gst, addlEmail, mob1, mob2]
       );
     }
 
@@ -104,7 +111,7 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ message: 'Invalid email or password' });
     }
 
-    // Only GCC/STARTUP need to be approved; ADMIN can always login
+    // Only ADMIN can bypass approval; every other role must be approved first.
     if (user.role !== 'ADMIN' && user.approval_status !== 'APPROVED') {
       return res.status(403).json({
         message: 'Your account is pending admin approval. You cannot login until an administrator approves your registration.',

@@ -4,7 +4,8 @@ CREATE TABLE IF NOT EXISTS users (
   email VARCHAR(255) UNIQUE NOT NULL,
   password_hash VARCHAR(255) NOT NULL,
   name VARCHAR(255) NOT NULL,
-  role VARCHAR(20) NOT NULL CHECK (role IN ('ADMIN', 'GCC', 'STARTUP')),
+  role VARCHAR(20) NOT NULL CHECK (role IN ('ADMIN', 'GCC', 'STARTUP', 'INCUBATION')),
+  managed_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
   approval_status VARCHAR(20) NOT NULL DEFAULT 'PENDING' CHECK (approval_status IN ('PENDING', 'APPROVED', 'REJECTED')),
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -12,6 +13,7 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+CREATE INDEX IF NOT EXISTS idx_users_managed_by_user_id ON users(managed_by_user_id);
 CREATE INDEX IF NOT EXISTS idx_users_approval_status ON users(approval_status);
 
 -- GCC profiles (after approval, GCC can edit)
@@ -95,6 +97,26 @@ CREATE TABLE IF NOT EXISTS startup_profiles (
 
 CREATE INDEX IF NOT EXISTS idx_startup_profiles_user_id ON startup_profiles(user_id);
 
+-- Incubation center profiles (manage multiple startup accounts)
+CREATE TABLE IF NOT EXISTS incubation_profiles (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  company_name VARCHAR(255),
+  website VARCHAR(500),
+  description TEXT,
+  location VARCHAR(255),
+  contact_person VARCHAR(255),
+  phone VARCHAR(50),
+  gst_number VARCHAR(100),
+  additional_email VARCHAR(255),
+  mobile_primary VARCHAR(50),
+  mobile_secondary VARCHAR(50),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_incubation_profiles_user_id ON incubation_profiles(user_id);
+
 -- Requirements (tech needs posted by GCCs)
 CREATE TABLE IF NOT EXISTS requirements (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -166,6 +188,9 @@ CREATE TRIGGER gcc_profiles_updated_at BEFORE UPDATE ON gcc_profiles FOR EACH RO
 
 DROP TRIGGER IF EXISTS startup_profiles_updated_at ON startup_profiles;
 CREATE TRIGGER startup_profiles_updated_at BEFORE UPDATE ON startup_profiles FOR EACH ROW EXECUTE PROCEDURE update_updated_at();
+
+DROP TRIGGER IF EXISTS incubation_profiles_updated_at ON incubation_profiles;
+CREATE TRIGGER incubation_profiles_updated_at BEFORE UPDATE ON incubation_profiles FOR EACH ROW EXECUTE PROCEDURE update_updated_at();
 
 DROP TRIGGER IF EXISTS requirements_updated_at ON requirements;
 CREATE TRIGGER requirements_updated_at BEFORE UPDATE ON requirements FOR EACH ROW EXECUTE PROCEDURE update_updated_at();

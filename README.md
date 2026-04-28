@@ -22,6 +22,8 @@ Node.js (Express) API with PostgreSQL, JWT auth, and RBAC.
    ```
    Seed creates an admin user: `admin@gccstartup.local` / `Admin123!` (override with `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME`).
 
+   `npm run dev` and `npm start` now also auto-apply `schema.sql` plus any SQL files inside `src/db/migrations/` before the API starts, which makes VM deploys safer on existing databases.
+
 4. **Run**
    ```bash
    npm run dev

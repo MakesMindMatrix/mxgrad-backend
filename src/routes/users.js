@@ -8,7 +8,7 @@ router.use(authMiddleware);
 router.use(requireAuth);
 router.use(requireApproved);
 
-// Get my profile (GCC or Startup profile data based on role)
+// Get my profile (role-specific profile data)
 router.get('/profile', async (req, res) => {
   try {
     const { id, role } = req.user;
@@ -23,6 +23,14 @@ router.get('/profile', async (req, res) => {
     if (role === 'STARTUP') {
       const r = await query(
         'SELECT * FROM startup_profiles WHERE user_id = $1',
+        [id]
+      );
+      const profile = r.rows[0] || null;
+      return res.json(profile);
+    }
+    if (role === 'INCUBATION') {
+      const r = await query(
+        'SELECT * FROM incubation_profiles WHERE user_id = $1',
         [id]
       );
       const profile = r.rows[0] || null;

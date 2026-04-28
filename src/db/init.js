@@ -1,15 +1,10 @@
+import { bootstrapDatabase } from './bootstrap.js';
 import { pool } from './pool.js';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 async function init() {
-  const sqlPath = path.join(__dirname, 'schema.sql');
-  const sql = fs.readFileSync(sqlPath, 'utf8');
-  await pool.query(sql);
+  await bootstrapDatabase();
   console.log('Database schema initialized.');
+  await pool.end();
   process.exit(0);
 }
 

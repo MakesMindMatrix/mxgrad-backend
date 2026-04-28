@@ -91,13 +91,13 @@ router.get('/:id', authMiddleware, async (req, res) => {
   }
 });
 
-// Express interest (STARTUP only); accepts multipart/form-data with optional document attachment
+// Express interest (STARTUP or INCUBATION); accepts multipart/form-data with optional document attachment
 router.post(
   '/:id/express-interest',
   authMiddleware,
   requireAuth,
   requireApproved,
-  requireRole('STARTUP'),
+  requireRole('STARTUP', 'INCUBATION'),
   (req, res, next) => {
     proposalUpload.single('document')(req, res, (err) => {
       if (err && err.code === 'LIMIT_FILE_SIZE') return res.status(400).json({ message: 'File too large (max 10MB)' });
@@ -115,7 +115,27 @@ router.post(
       const proposed_timeline_end = body.proposed_timeline_end || null;
       const portfolio_link = body.portfolio_link != null ? String(body.portfolio_link).trim() || null : null;
       const requirementId = req.params.id;
-      const startupUserId = req.user.id;
+      let startupUserId = req.user.id;
+
+      if (req.user.role === 'INCUBATION') {
+        const selectedStartupId = body.startup_user_id != null ? String(body.startup_user_id).trim() : '';
+        if (!selectedStartupId) {
+          return res.status(400).json({ message: 'Select an approved startup before submitting the proposal.' });
+        }
+        const startupCheck = await query(
+          `SELECT id
+           FROM users
+           WHERE id = $1
+             AND role = 'STARTUP'
+             AND approval_status = 'APPROVED'
+             AND managed_by_user_id = $2`,
+          [selectedStartupId, req.user.id]
+        );
+        if (startupCheck.rows.length === 0) {
+          return res.status(400).json({ message: 'Selected startup is not approved or does not belong to this incubation center.' });
+        }
+        startupUserId = selectedStartupId;
+      }
 
       let attachment_path = null;
       let attachment_original_name = null;

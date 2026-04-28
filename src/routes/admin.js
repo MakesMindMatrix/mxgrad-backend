@@ -44,13 +44,13 @@ router.get('/explore-requirements', async (req, res) => {
   }
 });
 
-// List pending approvals (GCC and STARTUP with approval_status = PENDING)
+// List pending approvals (GCC, STARTUP and INCUBATION with approval_status = PENDING)
 router.get('/approvals', async (req, res) => {
   try {
     const r = await query(
       `SELECT id, email, name, role, approval_status, created_at
        FROM users
-       WHERE role IN ('GCC', 'STARTUP') AND approval_status = 'PENDING'
+       WHERE role IN ('GCC', 'STARTUP', 'INCUBATION') AND approval_status = 'PENDING'
        ORDER BY created_at ASC`
     );
     res.json(r.rows);
@@ -66,7 +66,7 @@ router.post('/approvals/:userId/approve', async (req, res) => {
     const { userId } = req.params;
     const r = await query(
       `UPDATE users SET approval_status = 'APPROVED', updated_at = NOW()
-       WHERE id = $1 AND role IN ('GCC', 'STARTUP') AND approval_status = 'PENDING'
+       WHERE id = $1 AND role IN ('GCC', 'STARTUP', 'INCUBATION') AND approval_status = 'PENDING'
        RETURNING id, email, name, role, approval_status`,
       [userId]
     );
@@ -86,7 +86,7 @@ router.post('/approvals/:userId/reject', async (req, res) => {
     const { userId } = req.params;
     const r = await query(
       `UPDATE users SET approval_status = 'REJECTED', updated_at = NOW()
-       WHERE id = $1 AND role IN ('GCC', 'STARTUP') AND approval_status = 'PENDING'
+       WHERE id = $1 AND role IN ('GCC', 'STARTUP', 'INCUBATION') AND approval_status = 'PENDING'
        RETURNING id, email, name, role, approval_status`,
       [userId]
     );
@@ -100,14 +100,14 @@ router.post('/approvals/:userId/reject', async (req, res) => {
   }
 });
 
-// List all users; optional ?role=GCC|STARTUP filter
+// List all users; optional ?role=GCC|STARTUP|INCUBATION filter
 router.get('/users', async (req, res) => {
   try {
     const { role } = req.query;
     let sql = `SELECT id, email, name, role, approval_status, created_at, updated_at
        FROM users WHERE role != 'ADMIN'`;
     const params = [];
-    if (role === 'GCC' || role === 'STARTUP') {
+    if (role === 'GCC' || role === 'STARTUP' || role === 'INCUBATION') {
       params.push(role);
       sql += ` AND role = $1`;
     }
@@ -137,6 +137,9 @@ router.get('/users/:userId', async (req, res) => {
     } else if (user.role === 'STARTUP') {
       const p = await query('SELECT * FROM startup_profiles WHERE user_id = $1', [userId]);
       profile = p.rows[0] || null;
+    } else if (user.role === 'INCUBATION') {
+      const p = await query('SELECT * FROM incubation_profiles WHERE user_id = $1', [userId]);
+      profile = p.rows[0] || null;
     }
     res.json({ user, profile });
   } catch (err) {
@@ -163,7 +166,7 @@ router.put('/users/:userId', async (req, res) => {
       await query('UPDATE users SET email = $1, updated_at = NOW() WHERE id = $2', [email.trim().toLowerCase(), userId]);
     }
 
-    if (profileData && typeof profileData === 'object' && (user.role === 'GCC' || user.role === 'STARTUP')) {
+    if (profileData && typeof profileData === 'object' && (user.role === 'GCC' || user.role === 'STARTUP' || user.role === 'INCUBATION')) {
       if (user.role === 'GCC') {
         const gcc = profileData;
         await query(
@@ -175,7 +178,7 @@ router.put('/users/:userId', async (req, res) => {
            WHERE user_id = $1`,
           [userId, gcc.company_name, gcc.industry, gcc.location, gcc.size, gcc.description, gcc.website, gcc.contact_person, gcc.phone, gcc.linkedin]
         );
-      } else {
+      } else if (user.role === 'STARTUP') {
         const sp = profileData;
         await query(
           `UPDATE startup_profiles SET
@@ -191,6 +194,36 @@ router.put('/users/:userId', async (req, res) => {
             userId, sp.company_name, sp.legal_entity_name, sp.founding_year, sp.location, sp.website, sp.contact_phone,
             sp.industry, sp.solution_description, sp.primary_offering_type, sp.deployment_stage, sp.team_size,
             sp.funding, sp.total_funds_raised,
+          ]
+        );
+      } else {
+        const incubation = profileData;
+        await query(
+          `UPDATE incubation_profiles SET
+            company_name = COALESCE($2, company_name),
+            website = COALESCE($3, website),
+            description = COALESCE($4, description),
+            location = COALESCE($5, location),
+            contact_person = COALESCE($6, contact_person),
+            phone = COALESCE($7, phone),
+            gst_number = COALESCE($8, gst_number),
+            additional_email = COALESCE($9, additional_email),
+            mobile_primary = COALESCE($10, mobile_primary),
+            mobile_secondary = COALESCE($11, mobile_secondary),
+            updated_at = NOW()
+           WHERE user_id = $1`,
+          [
+            userId,
+            incubation.company_name,
+            incubation.website,
+            incubation.description,
+            incubation.location,
+            incubation.contact_person,
+            incubation.phone,
+            incubation.gst_number,
+            incubation.additional_email,
+            incubation.mobile_primary,
+            incubation.mobile_secondary,
           ]
         );
       }
@@ -236,8 +269,8 @@ router.post('/users/:userId/request-reverification', async (req, res) => {
 router.get('/stats', async (req, res) => {
   try {
     const [users, pending, pendingReqs, requirements, eoi] = await Promise.all([
-      query('SELECT COUNT(*) AS total FROM users WHERE role IN (\'GCC\', \'STARTUP\')'),
-      query('SELECT COUNT(*) AS total FROM users WHERE role IN (\'GCC\', \'STARTUP\') AND approval_status = \'PENDING\''),
+      query('SELECT COUNT(*) AS total FROM users WHERE role IN (\'GCC\', \'STARTUP\', \'INCUBATION\')'),
+      query('SELECT COUNT(*) AS total FROM users WHERE role IN (\'GCC\', \'STARTUP\', \'INCUBATION\') AND approval_status = \'PENDING\''),
       query("SELECT COUNT(*) AS total FROM requirements WHERE approval_status = 'PENDING_APPROVAL'"),
       query("SELECT COUNT(*) AS total FROM requirements WHERE status = 'OPEN' AND approval_status = 'APPROVED'"),
       query('SELECT COUNT(*) AS total FROM expressions_of_interest WHERE status = \'PENDING\''),
