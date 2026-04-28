@@ -101,7 +101,8 @@ router.get('/startups', async (req, res) => {
     const params = [req.user.id];
     let sql = `
       SELECT u.id, u.name, u.email, u.approval_status, u.login_enabled, u.created_at,
-             p.company_name, p.website, p.industry, p.solution_description, p.location, p.pan_number
+             p.company_name, p.website, p.industry, p.solution_description, p.location, p.pan_number,
+             (SELECT COUNT(*) FROM expressions_of_interest e WHERE e.startup_user_id = u.id) AS interest_count
       FROM users u
       JOIN startup_profiles p ON p.user_id = u.id
       WHERE u.role = 'STARTUP' AND u.managed_by_user_id = $1
@@ -116,6 +117,43 @@ router.get('/startups', async (req, res) => {
   } catch (err) {
     console.error('Incubation startups list:', err);
     res.status(500).json({ message: 'Failed to list managed startups' });
+  }
+});
+
+router.get('/startups/:startupId', async (req, res) => {
+  try {
+    const { startupId } = req.params;
+    const userResult = await query(
+      `SELECT u.id, u.name, u.email, u.role, u.approval_status, u.login_enabled, u.created_at, u.updated_at,
+              p.company_name, p.website, p.industry, p.solution_description, p.location, p.pan_number,
+              p.team_size, p.primary_offering_type, p.funding
+       FROM users u
+       LEFT JOIN startup_profiles p ON p.user_id = u.id
+       WHERE u.id = $1 AND u.role = 'STARTUP' AND u.managed_by_user_id = $2`,
+      [startupId, req.user.id]
+    );
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ message: 'Startup not found or not managed by you' });
+    }
+
+    const profileResult = await query('SELECT * FROM startup_profiles WHERE user_id = $1', [startupId]);
+    const interestsResult = await query(
+      `SELECT e.*, r.title AS requirement_title, r.category, r.anonymous_id
+       FROM expressions_of_interest e
+       JOIN requirements r ON r.id = e.requirement_id
+       WHERE e.startup_user_id = $1
+       ORDER BY e.created_at DESC`,
+      [startupId]
+    );
+
+    res.json({
+      user: userResult.rows[0],
+      profile: profileResult.rows[0] || null,
+      interests: interestsResult.rows,
+    });
+  } catch (err) {
+    console.error('Incubation startup detail:', err);
+    res.status(500).json({ message: 'Failed to get managed startup details' });
   }
 });
 

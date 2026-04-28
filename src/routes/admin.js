@@ -48,10 +48,18 @@ router.get('/explore-requirements', async (req, res) => {
 router.get('/approvals', async (req, res) => {
   try {
     const r = await query(
-      `SELECT id, email, name, role, approval_status, created_at
-       FROM users
-       WHERE role IN ('GCC', 'STARTUP', 'INCUBATION') AND approval_status = 'PENDING'
-       ORDER BY created_at ASC`
+      `SELECT u.id, u.email, u.name, u.role, u.approval_status, u.created_at, u.managed_by_user_id,
+              manager.name AS managed_by_name, manager.email AS managed_by_email,
+              CASE
+                WHEN u.role = 'INCUBATION' THEN (
+                  SELECT COUNT(*) FROM users child WHERE child.managed_by_user_id = u.id AND child.role = 'STARTUP'
+                )
+                ELSE 0
+              END AS managed_startup_count
+       FROM users u
+       LEFT JOIN users manager ON manager.id = u.managed_by_user_id
+       WHERE u.role IN ('GCC', 'STARTUP', 'INCUBATION') AND u.approval_status = 'PENDING'
+       ORDER BY u.created_at ASC`
     );
     res.json(r.rows);
   } catch (err) {
@@ -104,14 +112,23 @@ router.post('/approvals/:userId/reject', async (req, res) => {
 router.get('/users', async (req, res) => {
   try {
     const { role } = req.query;
-    let sql = `SELECT id, email, name, role, approval_status, created_at, updated_at
-       FROM users WHERE role != 'ADMIN'`;
+    let sql = `SELECT u.id, u.email, u.name, u.role, u.approval_status, u.created_at, u.updated_at, u.managed_by_user_id, u.login_enabled,
+                      manager.name AS managed_by_name, manager.email AS managed_by_email,
+                      CASE
+                        WHEN u.role = 'INCUBATION' THEN (
+                          SELECT COUNT(*) FROM users child WHERE child.managed_by_user_id = u.id AND child.role = 'STARTUP'
+                        )
+                        ELSE 0
+                      END AS managed_startup_count
+       FROM users u
+       LEFT JOIN users manager ON manager.id = u.managed_by_user_id
+       WHERE u.role != 'ADMIN'`;
     const params = [];
     if (role === 'GCC' || role === 'STARTUP' || role === 'INCUBATION') {
       params.push(role);
-      sql += ` AND role = $1`;
+      sql += ` AND u.role = $1`;
     }
-    sql += ` ORDER BY created_at DESC`;
+    sql += ` ORDER BY u.created_at DESC`;
     const r = await query(sql, params);
     res.json(r.rows);
   } catch (err) {
@@ -125,12 +142,23 @@ router.get('/users/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
     const u = await query(
-      'SELECT id, email, name, role, approval_status, created_at, updated_at FROM users WHERE id = $1 AND role != \'ADMIN\'',
+      `SELECT u.id, u.email, u.name, u.role, u.approval_status, u.created_at, u.updated_at, u.managed_by_user_id, u.login_enabled,
+              manager.name AS managed_by_name, manager.email AS managed_by_email,
+              CASE
+                WHEN u.role = 'INCUBATION' THEN (
+                  SELECT COUNT(*) FROM users child WHERE child.managed_by_user_id = u.id AND child.role = 'STARTUP'
+                )
+                ELSE 0
+              END AS managed_startup_count
+       FROM users u
+       LEFT JOIN users manager ON manager.id = u.managed_by_user_id
+       WHERE u.id = $1 AND u.role != 'ADMIN'`,
       [userId]
     );
     if (u.rows.length === 0) return res.status(404).json({ message: 'User not found' });
     const user = u.rows[0];
     let profile = null;
+    let managedStartups = [];
     if (user.role === 'GCC') {
       const p = await query('SELECT * FROM gcc_profiles WHERE user_id = $1', [userId]);
       profile = p.rows[0] || null;
@@ -140,8 +168,18 @@ router.get('/users/:userId', async (req, res) => {
     } else if (user.role === 'INCUBATION') {
       const p = await query('SELECT * FROM incubation_profiles WHERE user_id = $1', [userId]);
       profile = p.rows[0] || null;
+      const s = await query(
+        `SELECT u.id, u.name, u.email, u.role, u.approval_status, u.created_at, u.updated_at, u.login_enabled,
+                p.company_name, p.website, p.industry, p.location, p.solution_description
+         FROM users u
+         LEFT JOIN startup_profiles p ON p.user_id = u.id
+         WHERE u.role = 'STARTUP' AND u.managed_by_user_id = $1
+         ORDER BY u.created_at DESC`,
+        [userId]
+      );
+      managedStartups = s.rows;
     }
-    res.json({ user, profile });
+    res.json({ user, profile, managedStartups });
   } catch (err) {
     console.error('Admin user get:', err);
     res.status(500).json({ message: 'Failed to get user' });
@@ -302,10 +340,12 @@ router.get('/activities', async (req, res) => {
         [limit]
       ),
       query(
-        `SELECT e.id, e.message, e.status, e.created_at, r.title AS requirement_title, u.name AS startup_name, u.email AS startup_email
+        `SELECT e.id, e.message, e.status, e.created_at, r.title AS requirement_title, u.name AS startup_name, u.email AS startup_email,
+                manager.name AS managed_by_name, manager.email AS managed_by_email
          FROM expressions_of_interest e
          JOIN requirements r ON r.id = e.requirement_id
          JOIN users u ON u.id = e.startup_user_id
+         LEFT JOIN users manager ON manager.id = u.managed_by_user_id
          ORDER BY e.created_at DESC LIMIT $1`,
         [limit]
       ),

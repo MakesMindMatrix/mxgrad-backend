@@ -22,14 +22,28 @@ function loginResponse(user, token) {
   return {
     token,
     expiresIn: JWT_EXPIRES_IN,
-    user: { id: user.id, email: user.email, name: user.name, role: user.role, approvalStatus: user.approval_status },
+    user: {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      approvalStatus: user.approval_status,
+      managed_by_user_id: user.managed_by_user_id ?? null,
+      managed_by_name: user.managed_by_name ?? null,
+      managed_by_email: user.managed_by_email ?? null,
+      login_enabled: user.login_enabled ?? true,
+    },
   };
 }
 
 // Look up user by primary login email only (never additional_email from profiles)
 async function findUserByEmail(email) {
   const result = await query(
-    'SELECT id, email, password_hash, name, role, approval_status, managed_by_user_id, login_enabled FROM users WHERE email = $1',
+    `SELECT u.id, u.email, u.password_hash, u.name, u.role, u.approval_status, u.managed_by_user_id, u.login_enabled,
+            manager.name AS managed_by_name, manager.email AS managed_by_email
+     FROM users u
+     LEFT JOIN users manager ON manager.id = u.managed_by_user_id
+     WHERE u.email = $1`,
     [email.trim().toLowerCase()]
   );
   return result.rows[0] || null;
@@ -175,7 +189,17 @@ async function doLogin(req, res, allowedRole, isAdmin = false) {
         return res.status(403).json({
           message: 'Your account is pending admin approval.',
           code: 'PENDING_APPROVAL',
-          user: { id: user.id, email: user.email, name: user.name, role: user.role, approvalStatus: user.approval_status },
+          user: {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            role: user.role,
+            approvalStatus: user.approval_status,
+            managed_by_user_id: user.managed_by_user_id ?? null,
+            managed_by_name: user.managed_by_name ?? null,
+            managed_by_email: user.managed_by_email ?? null,
+            login_enabled: user.login_enabled ?? true,
+          },
         });
       }
 
@@ -211,12 +235,27 @@ router.post('/login/admin', (req, res) => doLogin(req, res, 'ADMIN', true));
 router.get('/me', authMiddleware, requireAuth, async (req, res) => {
   try {
     const r = await query(
-      'SELECT id, email, name, role, approval_status, created_at FROM users WHERE id = $1',
+      `SELECT u.id, u.email, u.name, u.role, u.approval_status, u.created_at, u.managed_by_user_id, u.login_enabled,
+              manager.name AS managed_by_name, manager.email AS managed_by_email
+       FROM users u
+       LEFT JOIN users manager ON manager.id = u.managed_by_user_id
+       WHERE u.id = $1`,
       [req.user.id]
     );
     if (r.rows.length === 0) return res.status(404).json({ message: 'User not found' });
     const u = r.rows[0];
-    res.json({ id: u.id, email: u.email, name: u.name, role: u.role, approvalStatus: u.approval_status, createdAt: u.created_at });
+    res.json({
+      id: u.id,
+      email: u.email,
+      name: u.name,
+      role: u.role,
+      approvalStatus: u.approval_status,
+      createdAt: u.created_at,
+      managed_by_user_id: u.managed_by_user_id ?? null,
+      managed_by_name: u.managed_by_name ?? null,
+      managed_by_email: u.managed_by_email ?? null,
+      login_enabled: u.login_enabled ?? true,
+    });
   } catch (err) {
     console.error('Me error:', err);
     res.status(500).json({ message: 'Failed to get user' });
